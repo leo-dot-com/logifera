@@ -1,4 +1,4 @@
-# handwriting_api.py - WITH REMOTE WEIGHTS
+# handwriting_api.py - UPDATED FOR TF 2.19.0
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TensorFlow logging
 
@@ -15,7 +15,6 @@ from skimage.segmentation import mark_boundaries
 import tempfile
 import logging
 import requests
-import hashlib
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -26,9 +25,9 @@ CORS(app)
 
 # Your weights URL
 WEIGHTS_URL = "https://www.logifera.com/dev/diagnosis/model.weights.h5"
-WEIGHTS_CACHE_PATH = "/tmp/model.weights.h5"  # Railway has persistent /tmp
+WEIGHTS_CACHE_PATH = "/tmp/model.weights.h5"
 
-# Your model architecture
+# Your model architecture (updated for TF 2.19.0 compatibility)
 def create_custom_cnn(x):
     x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu', padding='same', name='custom_conv1')(x)
     x = tf.keras.layers.MaxPooling2D((2, 2), name='custom_pool1')(x)
@@ -56,10 +55,9 @@ model = None
 weights_downloaded = False
 
 def download_weights():
-    """Download weights from your Hostinger domain with progress and caching"""
+    """Download weights from your Hostinger domain"""
     global weights_downloaded
     
-    # Check if weights already exist in cache
     if os.path.exists(WEIGHTS_CACHE_PATH):
         file_size = os.path.getsize(WEIGHTS_CACHE_PATH)
         logger.info(f"Weights found in cache: {file_size / (1024*1024):.2f} MB")
@@ -67,10 +65,8 @@ def download_weights():
         return WEIGHTS_CACHE_PATH
     
     logger.info("Downloading model weights from Hostinger...")
-    logger.info(f"URL: {WEIGHTS_URL}")
     
     try:
-        # Stream download to handle large file
         response = requests.get(WEIGHTS_URL, stream=True, timeout=60)
         response.raise_for_status()
         
@@ -83,24 +79,18 @@ def download_weights():
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
-                    if total_size > 0:
+                    if total_size > 0 and downloaded % (1024*1024) == 0:  # Log every MB
                         percent = (downloaded / total_size) * 100
-                        if int(percent) % 10 == 0:  # Log every 10%
-                            logger.info(f"Download progress: {percent:.1f}%")
+                        logger.info(f"Download progress: {percent:.1f}%")
         
-        # Verify download
         actual_size = os.path.getsize(WEIGHTS_CACHE_PATH)
         logger.info(f"Download completed: {actual_size / (1024*1024):.2f} MB")
-        
-        if total_size > 0 and actual_size != total_size:
-            raise Exception(f"Download incomplete: expected {total_size}, got {actual_size}")
         
         weights_downloaded = True
         return WEIGHTS_CACHE_PATH
         
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.error(f"Download failed: {str(e)}")
-        # Check if we have a cached version to use
         if os.path.exists(WEIGHTS_CACHE_PATH):
             logger.warning("Using cached weights despite download error")
             return WEIGHTS_CACHE_PATH
@@ -117,14 +107,10 @@ def load_model_once():
     model = create_model(input_shape=(64, 64, 3))
     
     try:
-        # Download weights
         weights_path = download_weights()
-        
-        # Load weights
         logger.info("Loading weights into model...")
         model.load_weights(weights_path)
         
-        # Compile model
         model.compile(optimizer=Adam(learning_rate=0.001),
                      loss='categorical_crossentropy',
                      metrics=['accuracy'])
@@ -136,7 +122,7 @@ def load_model_once():
         model = None
         raise
 
-# Visualization functions (same as before)
+# Visualization functions
 def generate_saliency_map(model, img_array, class_idx):
     img_tensor = tf.convert_to_tensor(img_array)
     with tf.GradientTape() as tape:
@@ -169,7 +155,7 @@ def generate_lime_explanation(model, img_array, class_index):
         batch_predict,
         top_labels=3,
         hide_color=0,
-        num_samples=50  # Reduced for faster processing
+        num_samples=50
     )
     temp, mask = explanation.get_image_and_mask(
         class_index,
@@ -194,36 +180,30 @@ def analyze_handwriting():
         if file.filename == '':
             return jsonify({"error": "No file selected"}), 400
 
-        # Save uploaded file temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
             file.save(tmp_file.name)
             img_path = tmp_file.name
 
-        # Process image
         img = load_img(img_path, target_size=(64, 64))
         img_array = img_to_array(img) / 255.0
         img_array = np.expand_dims(img_array, axis=0)
 
-        # Predict
         predictions = model.predict(img_array, verbose=0)
         class_index = np.argmax(predictions[0])
         confidence = float(predictions[0][class_index])
         
         result = "Dyslexic" if class_index == 1 else "Non-Dyslexic"
 
-        # Generate visualizations
         saliency_map = generate_saliency_map(model, img_array, class_index)
         overlay_image = overlay_saliency_on_image(saliency_map, img_path)
         lime_img = generate_lime_explanation(model, img_array, class_index)
 
-        # Encode images
         _, saliency_buffer = cv2.imencode('.png', overlay_image)
         _, lime_buffer = cv2.imencode('.png', lime_img)
         
         saliency_base64 = base64.b64encode(saliency_buffer).decode('utf-8')
         lime_base64 = base64.b64encode(lime_buffer).decode('utf-8')
 
-        # Clean up
         os.unlink(img_path)
 
         return jsonify({
@@ -262,15 +242,6 @@ def home():
         "status": "running",
         "weights_url": WEIGHTS_URL
     })
-
-# Pre-load model when starting (but don't block startup)
-@app.before_first_request
-def preload_model():
-    try:
-        logger.info("Pre-loading model...")
-        load_model_once()
-    except Exception as e:
-        logger.warning(f"Pre-load failed, will load on first request: {str(e)}")
 
 if __name__ == '__main__':
     logger.info("Starting Handwriting Analysis API...")
