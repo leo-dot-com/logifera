@@ -1,19 +1,19 @@
+# handwriting_api.py - MINIMAL VERSION
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TensorFlow logging
 
-# Add these TensorFlow memory optimizations
+# TensorFlow memory optimizations
 import tensorflow as tf
+
+# Configure TensorFlow to use less memory
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
     try:
-        # Currently, memory growth needs to be the same across GPUs
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
     except RuntimeError as e:
-        # Memory growth must be set before GPUs have been initialized
         print(e)
 
-# Limit CPU memory usage
 tf.config.set_soft_device_placement(True)
 tf.config.threading.set_inter_op_parallelism_threads(2)
 tf.config.threading.set_intra_op_parallelism_threads(2)
@@ -25,8 +25,6 @@ from tensorflow.keras.preprocessing.image import load_img, img_to_array
 from tensorflow.keras.optimizers import Adam
 import base64
 import cv2
-from lime import lime_image
-from skimage.segmentation import mark_boundaries
 import tempfile
 import logging
 import requests
@@ -42,32 +40,10 @@ CORS(app)
 WEIGHTS_URL = "https://www.logifera.com/model.weights.h5"
 WEIGHTS_CACHE_PATH = "/tmp/model.weights.h5"
 
-# Your model architecture (updated for TF 2.19.0 compatibility)
-def create_custom_cnn(x):
-    x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu', padding='same', name='custom_conv1')(x)
-    x = tf.keras.layers.MaxPooling2D((2, 2), name='custom_pool1')(x)
-    x = tf.keras.layers.Conv2D(128, (3, 3), activation='relu', padding='same', name='custom_conv2')(x)
-    return x
-
-#THIS IS THE ACTUAL MODEL BUT TOO COMPLEX FOR FREE-TIER
-#def create_model(input_shape=(64, 64, 3)):
-#    inputs = tf.keras.layers.Input(shape=input_shape)
-#    x = create_custom_cnn(inputs)
-#    x = tf.keras.layers.Flatten()(x)
-#    x = tf.keras.layers.Dense(256, activation='relu', name='dense1')(x)
-#    x = tf.keras.layers.Dropout(0.2)(x)
-#    x = tf.keras.layers.Dense(64, name='dense2')(x)
-#    x = tf.keras.layers.Reshape((8, 8))(x)
-#    gru = tf.keras.layers.GRU(64, return_sequences=True, name='gru')(x)
-#    attention = tf.keras.layers.Attention(name='attention')([gru, gru])
-#    combined = tf.keras.layers.concatenate([gru, attention])
-#    flattened = tf.keras.layers.Flatten()(combined)
-#    output = tf.keras.layers.Dense(2, activation='softmax', name='output')(flattened)
-#    model = tf.keras.models.Model(inputs=inputs, outputs=output)
-#    return model
-
+# Simplified model architecture to reduce memory usage
 def create_model(input_shape=(64, 64, 3)):
     inputs = tf.keras.layers.Input(shape=input_shape)
+    
     # Simplified CNN
     x = tf.keras.layers.Conv2D(32, (3, 3), activation='relu')(inputs)
     x = tf.keras.layers.MaxPooling2D((2, 2))(x)
@@ -95,7 +71,7 @@ def download_weights():
         weights_downloaded = True
         return WEIGHTS_CACHE_PATH
     
-    logger.info("Downloading model weights from Hostinger...")
+    logger.info("Downloading model weights...")
     
     try:
         response = requests.get(WEIGHTS_URL, stream=True, timeout=60)
@@ -110,9 +86,6 @@ def download_weights():
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
-                    if total_size > 0 and downloaded % (1024*1024) == 0:  # Log every MB
-                        percent = (downloaded / total_size) * 100
-                        logger.info(f"Download progress: {percent:.1f}%")
         
         actual_size = os.path.getsize(WEIGHTS_CACHE_PATH)
         logger.info(f"Download completed: {actual_size / (1024*1024):.2f} MB")
@@ -153,7 +126,7 @@ def load_model_once():
         model = None
         raise
 
-# Visualization functions
+# Simple saliency map (without LIME)
 def generate_saliency_map(model, img_array, class_idx):
     img_tensor = tf.convert_to_tensor(img_array)
     with tf.GradientTape() as tape:
@@ -176,28 +149,6 @@ def overlay_saliency_on_image(saliency_map, img_path, alpha=0.4):
     saliency_map_colored = cv2.applyColorMap(saliency_map_resized, cv2.COLORMAP_JET)
     overlay = cv2.addWeighted(img, alpha, saliency_map_colored, 1 - alpha, 0)
     return overlay
-
-def generate_lime_explanation(model, img_array, class_index):
-    explainer = lime_image.LimeImageExplainer()
-    def batch_predict(images):
-        return model.predict(images)
-    explanation = explainer.explain_instance(
-        img_array[0].astype('double'),
-        batch_predict,
-        top_labels=3,
-        hide_color=0,
-        num_samples=50
-    )
-    temp, mask = explanation.get_image_and_mask(
-        class_index,
-        positive_only=True,
-        num_features=3,
-        hide_rest=False
-    )
-    lime_img = mark_boundaries(temp, mask)
-    lime_img = (lime_img * 255).astype(np.uint8)
-    lime_img_bgr = cv2.cvtColor(lime_img, cv2.COLOR_RGB2BGR)
-    return lime_img_bgr
 
 @app.route('/analyze-handwriting', methods=['POST'])
 def analyze_handwriting():
@@ -225,15 +176,13 @@ def analyze_handwriting():
         
         result = "Dyslexic" if class_index == 1 else "Non-Dyslexic"
 
+        # Generate saliency map only (skip LIME for now)
         saliency_map = generate_saliency_map(model, img_array, class_index)
         overlay_image = overlay_saliency_on_image(saliency_map, img_path)
-        lime_img = generate_lime_explanation(model, img_array, class_index)
 
+        # Encode image
         _, saliency_buffer = cv2.imencode('.png', overlay_image)
-        _, lime_buffer = cv2.imencode('.png', lime_img)
-        
         saliency_base64 = base64.b64encode(saliency_buffer).decode('utf-8')
-        lime_base64 = base64.b64encode(lime_buffer).decode('utf-8')
 
         os.unlink(img_path)
 
@@ -242,7 +191,7 @@ def analyze_handwriting():
             "result": result,
             "confidence": confidence,
             "saliency_base64": saliency_base64,
-            "lime_base64": lime_base64
+            "lime_base64": ""  # Empty for now
         })
 
     except Exception as e:
