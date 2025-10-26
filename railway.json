@@ -1,0 +1,9 @@
+{
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "startCommand": "python handwriting_api.py",
+    "restartPolicyType": "ON_FAILURE"
+  }
+}
