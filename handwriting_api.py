@@ -1,4 +1,7 @@
-# handwriting_api.py - Updated for remote weights
+# handwriting_api.py - OPTIMIZED FOR RAILWAY
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TensorFlow logging
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import numpy as np
@@ -9,14 +12,17 @@ import cv2
 import tensorflow as tf
 from lime import lime_image
 from skimage.segmentation import mark_boundaries
-import os
-import requests
 import tempfile
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
 
-# Your model architecture (same as before)
+# Your model architecture
 def create_custom_cnn(x):
     x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu', padding='same', name='custom_conv1')(x)
     x = tf.keras.layers.MaxPooling2D((2, 2), name='custom_pool1')(x)
@@ -24,7 +30,6 @@ def create_custom_cnn(x):
     return x
 
 def create_model(input_shape=(64, 64, 3)):
-    # Your exact architecture from CNN_model.py
     inputs = tf.keras.layers.Input(shape=input_shape)
     x = create_custom_cnn(inputs)
     x = tf.keras.layers.Flatten()(x)
@@ -43,47 +48,37 @@ def create_model(input_shape=(64, 64, 3)):
 # Global model variable
 model = None
 
-def download_weights():
-    """Download weights from your Hostinger account"""
-    # You'll need to make the weights publicly accessible or use a secure method
-    weights_url = "https://yourdomain.com/model.weights.h5"  # Upload to your Hostinger
-    
-    try:
-        response = requests.get(weights_url, stream=True)
-        if response.status_code == 200:
-            # Save to temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.h5') as tmp_file:
-                for chunk in response.iter_content(chunk_size=8192):
-                    tmp_file.write(chunk)
-                return tmp_file.name
-        else:
-            raise Exception(f"Failed to download weights: {response.status_code}")
-    except Exception as e:
-        raise Exception(f"Error downloading weights: {str(e)}")
-
 def load_model_once():
     """Load model only once when the API starts"""
     global model
     if model is None:
-        print("Loading model for the first time...")
+        logger.info("Loading model for the first time...")
         model = create_model(input_shape=(64, 64, 3))
         
-        # For Railway deployment, we'll package weights with the app
-        # For now, use local weights file
-        weights_path = 'model.weights.h5'
+        # Try to load weights from different possible locations
+        weights_paths = [
+            'model.weights.h5',
+            '/app/model.weights.h5',
+            './model.weights.h5'
+        ]
         
-        # If weights don't exist locally, download them
-        if not os.path.exists(weights_path):
-            print("Downloading weights...")
-            weights_path = download_weights()
+        weights_loaded = False
+        for weights_path in weights_paths:
+            if os.path.exists(weights_path):
+                logger.info(f"Loading weights from: {weights_path}")
+                model.load_weights(weights_path)
+                weights_loaded = True
+                break
         
-        model.load_weights(weights_path)
+        if not weights_loaded:
+            raise Exception("Could not find model.weights.h5 in any location")
+        
         model.compile(optimizer=Adam(learning_rate=0.001),
                      loss='categorical_crossentropy',
                      metrics=['accuracy'])
-        print("Model loaded successfully!")
+        logger.info("Model loaded successfully!")
 
-# Your existing visualization functions (same as before)
+# Your visualization functions
 def generate_saliency_map(model, img_array, class_idx):
     img_tensor = tf.convert_to_tensor(img_array)
     with tf.GradientTape() as tape:
@@ -114,14 +109,14 @@ def generate_lime_explanation(model, img_array, class_index):
     explanation = explainer.explain_instance(
         img_array[0].astype('double'),
         batch_predict,
-        top_labels=5,
+        top_labels=3,
         hide_color=0,
-        num_samples=100  # Reduced for faster processing
+        num_samples=50  # Reduced for faster processing
     )
     temp, mask = explanation.get_image_and_mask(
         class_index,
         positive_only=True,
-        num_features=5,
+        num_features=3,
         hide_rest=False
     )
     lime_img = mark_boundaries(temp, mask)
@@ -132,7 +127,7 @@ def generate_lime_explanation(model, img_array, class_index):
 @app.route('/analyze-handwriting', methods=['POST'])
 def analyze_handwriting():
     try:
-        load_model_once()  # Ensure model is loaded
+        load_model_once()
         
         if 'file' not in request.files:
             return jsonify({"error": "No file uploaded"}), 400
@@ -182,19 +177,36 @@ def analyze_handwriting():
         })
 
     except Exception as e:
+        logger.error(f"Error in analyze_handwriting: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    load_model_once()
-    return jsonify({
-        "status": "healthy", 
-        "model_loaded": model is not None,
-        "ready": True
-    })
+    try:
+        load_model_once()
+        return jsonify({
+            "status": "healthy", 
+            "model_loaded": model is not None,
+            "ready": True
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "error": str(e)
+        }), 500
+
+@app.route('/')
+def home():
+    return jsonify({"message": "Handwriting Analysis API", "status": "running"})
 
 if __name__ == '__main__':
     # Pre-load model when starting
-    load_model_once()
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    logger.info("Starting Handwriting Analysis API...")
+    try:
+        load_model_once()
+        port = int(os.environ.get('PORT', 5000))
+        logger.info(f"Server starting on port {port}")
+        app.run(host='0.0.0.0', port=port, debug=False)
+    except Exception as e:
+        logger.error(f"Failed to start server: {str(e)}")
+        raise
