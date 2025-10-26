@@ -1,23 +1,8 @@
-# handwriting_api.py - MINIMAL VERSION
+# handwriting_api.py - SIMPLIFIED ARCHITECTURE
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TensorFlow logging
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
-# TensorFlow memory optimizations
 import tensorflow as tf
-
-# Configure TensorFlow to use less memory
-gpus = tf.config.experimental.list_physical_devices('GPU')
-if gpus:
-    try:
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-    except RuntimeError as e:
-        print(e)
-
-tf.config.set_soft_device_placement(True)
-tf.config.threading.set_inter_op_parallelism_threads(2)
-tf.config.threading.set_intra_op_parallelism_threads(2)
-
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import numpy as np
@@ -40,26 +25,21 @@ CORS(app)
 WEIGHTS_URL = "https://www.logifera.com/model.weights.h5"
 WEIGHTS_CACHE_PATH = "/tmp/model.weights.h5"
 
-# Simplified model architecture to reduce memory usage
+# Simplified model architecture that matches your weights
 def create_model(input_shape=(64, 64, 3)):
-    # Simplified architecture that matches your saved weights
     inputs = tf.keras.layers.Input(shape=input_shape)
     
-    # First Conv2D layer (matches 'conv2d' in weights)
+    # Conv layers
     x = tf.keras.layers.Conv2D(32, (3, 3), activation='relu', name='conv2d')(inputs)
     x = tf.keras.layers.MaxPooling2D((2, 2))(x)
-    
-    # Second Conv2D layer (matches 'conv2d_1' in weights)  
     x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu', name='conv2d_1')(x)
     x = tf.keras.layers.MaxPooling2D((2, 2))(x)
     
     x = tf.keras.layers.Flatten()(x)
     
-    # First Dense layer (matches 'dense' in weights)
+    # Dense layers
     x = tf.keras.layers.Dense(128, activation='relu', name='dense')(x)
     x = tf.keras.layers.Dropout(0.3)(x)
-    
-    # Output layer (matches 'dense_1' in weights)
     output = tf.keras.layers.Dense(2, activation='softmax', name='dense_1')(x)
     
     model = tf.keras.models.Model(inputs=inputs, outputs=output)
@@ -67,16 +47,12 @@ def create_model(input_shape=(64, 64, 3)):
 
 # Global model variable
 model = None
-weights_downloaded = False
 
 def download_weights():
     """Download weights from your Hostinger domain"""
-    global weights_downloaded
-    
     if os.path.exists(WEIGHTS_CACHE_PATH):
         file_size = os.path.getsize(WEIGHTS_CACHE_PATH)
         logger.info(f"Weights found in cache: {file_size / (1024*1024):.2f} MB")
-        weights_downloaded = True
         return WEIGHTS_CACHE_PATH
     
     logger.info("Downloading model weights...")
@@ -89,24 +65,19 @@ def download_weights():
         logger.info(f"Total size: {total_size / (1024*1024):.2f} MB")
         
         with open(WEIGHTS_CACHE_PATH, 'wb') as f:
-            downloaded = 0
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
-                    downloaded += len(chunk)
         
         actual_size = os.path.getsize(WEIGHTS_CACHE_PATH)
         logger.info(f"Download completed: {actual_size / (1024*1024):.2f} MB")
-        
-        weights_downloaded = True
         return WEIGHTS_CACHE_PATH
         
     except Exception as e:
         logger.error(f"Download failed: {str(e)}")
         if os.path.exists(WEIGHTS_CACHE_PATH):
-            logger.warning("Using cached weights despite download error")
             return WEIGHTS_CACHE_PATH
-        raise Exception(f"Failed to download weights: {str(e)}")
+        raise
 
 def load_model_once():
     """Load model only once when the API starts"""
@@ -134,13 +105,15 @@ def load_model_once():
         model = None
         raise
 
-# Simple saliency map (without LIME)
 def generate_saliency_map(model, img_array, class_idx):
+    """Generate saliency map for visualization"""
     img_tensor = tf.convert_to_tensor(img_array)
+    
     with tf.GradientTape() as tape:
         tape.watch(img_tensor)
         predictions = model(img_tensor)
         class_score = predictions[:, class_idx]
+    
     gradients = tape.gradient(class_score, img_tensor)
     gradients = tf.abs(gradients)
     saliency = tf.reduce_max(gradients, axis=-1)
@@ -149,9 +122,12 @@ def generate_saliency_map(model, img_array, class_idx):
     return saliency.numpy()
 
 def overlay_saliency_on_image(saliency_map, img_path, alpha=0.4):
+    """Overlay saliency map on original image"""
     saliency_map = np.squeeze(saliency_map)
+    
     if saliency_map.dtype != np.uint8:
         saliency_map = np.uint8(255 * saliency_map / saliency_map.max())
+    
     img = cv2.imread(img_path)
     saliency_map_resized = cv2.resize(saliency_map, (img.shape[1], img.shape[0]))
     saliency_map_colored = cv2.applyColorMap(saliency_map_resized, cv2.COLORMAP_JET)
@@ -170,21 +146,24 @@ def analyze_handwriting():
         if file.filename == '':
             return jsonify({"error": "No file selected"}), 400
 
+        # Save uploaded file temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
             file.save(tmp_file.name)
             img_path = tmp_file.name
 
+        # Process image
         img = load_img(img_path, target_size=(64, 64))
         img_array = img_to_array(img) / 255.0
         img_array = np.expand_dims(img_array, axis=0)
 
+        # Predict
         predictions = model.predict(img_array, verbose=0)
         class_index = np.argmax(predictions[0])
         confidence = float(predictions[0][class_index])
         
         result = "Dyslexic" if class_index == 1 else "Non-Dyslexic"
 
-        # Generate saliency map only (skip LIME for now)
+        # Generate saliency map
         saliency_map = generate_saliency_map(model, img_array, class_index)
         overlay_image = overlay_saliency_on_image(saliency_map, img_path)
 
@@ -192,6 +171,7 @@ def analyze_handwriting():
         _, saliency_buffer = cv2.imencode('.png', overlay_image)
         saliency_base64 = base64.b64encode(saliency_buffer).decode('utf-8')
 
+        # Clean up
         os.unlink(img_path)
 
         return jsonify({
@@ -199,7 +179,7 @@ def analyze_handwriting():
             "result": result,
             "confidence": confidence,
             "saliency_base64": saliency_base64,
-            "lime_base64": ""  # Empty for now
+            "lime_base64": ""  # Empty since we removed LIME
         })
 
     except Exception as e:
@@ -213,30 +193,24 @@ def health_check():
         return jsonify({
             "status": "healthy", 
             "model_loaded": model is not None,
-            "weights_downloaded": weights_downloaded,
             "ready": True
         })
     except Exception as e:
         return jsonify({
             "status": "error",
-            "error": str(e),
-            "weights_downloaded": weights_downloaded
+            "error": str(e)
         }), 500
 
 @app.route('/')
 def home():
-    return jsonify({
-        "message": "Handwriting Analysis API", 
-        "status": "running",
-        "weights_url": WEIGHTS_URL
-    })
+    return jsonify({"message": "Handwriting Analysis API", "status": "running"})
 
 if __name__ == '__main__':
     logger.info("Starting Handwriting Analysis API...")
     port = int(os.environ.get('PORT', 5000))
     logger.info(f"Server starting on port {port}")
     
-    # Try to pre-load but don't fail startup
+    # Pre-load model
     try:
         load_model_once()
     except Exception as e:
