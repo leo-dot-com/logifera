@@ -1,11 +1,12 @@
-# requirements.txt
+# requirements.txt - UPDATED FOR COMPATIBILITY
 flask==2.3.3
 flask-cors==4.0.0
-tensorflow-cpu==2.16.2
+tensorflow-cpu==2.13.1
 opencv-python-headless==4.8.1.78
 lime==0.2.0.1
 scikit-image==0.21.0
-numpy==1.24.3
-Pillow==10.0.1
+numpy==1.26.4
+Pillow==10.2.0
 requests==2.31.0
 scipy==1.11.4
+Werkzeug==2.3.7
