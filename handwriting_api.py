@@ -1,6 +1,22 @@
-# handwriting_api.py - UPDATED FOR TF 2.19.0
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TensorFlow logging
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
+# Add these TensorFlow memory optimizations
+import tensorflow as tf
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+    try:
+        # Currently, memory growth needs to be the same across GPUs
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+    except RuntimeError as e:
+        # Memory growth must be set before GPUs have been initialized
+        print(e)
+
+# Limit CPU memory usage
+tf.config.set_soft_device_placement(True)
+tf.config.threading.set_inter_op_parallelism_threads(2)
+tf.config.threading.set_intra_op_parallelism_threads(2)
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -9,7 +25,6 @@ from tensorflow.keras.preprocessing.image import load_img, img_to_array
 from tensorflow.keras.optimizers import Adam
 import base64
 import cv2
-import tensorflow as tf
 from lime import lime_image
 from skimage.segmentation import mark_boundaries
 import tempfile
@@ -34,19 +49,35 @@ def create_custom_cnn(x):
     x = tf.keras.layers.Conv2D(128, (3, 3), activation='relu', padding='same', name='custom_conv2')(x)
     return x
 
+#THIS IS THE ACTUAL MODEL BUT TOO COMPLEX FOR FREE-TIER
+#def create_model(input_shape=(64, 64, 3)):
+#    inputs = tf.keras.layers.Input(shape=input_shape)
+#    x = create_custom_cnn(inputs)
+#    x = tf.keras.layers.Flatten()(x)
+#    x = tf.keras.layers.Dense(256, activation='relu', name='dense1')(x)
+#    x = tf.keras.layers.Dropout(0.2)(x)
+#    x = tf.keras.layers.Dense(64, name='dense2')(x)
+#    x = tf.keras.layers.Reshape((8, 8))(x)
+#    gru = tf.keras.layers.GRU(64, return_sequences=True, name='gru')(x)
+#    attention = tf.keras.layers.Attention(name='attention')([gru, gru])
+#    combined = tf.keras.layers.concatenate([gru, attention])
+#    flattened = tf.keras.layers.Flatten()(combined)
+#    output = tf.keras.layers.Dense(2, activation='softmax', name='output')(flattened)
+#    model = tf.keras.models.Model(inputs=inputs, outputs=output)
+#    return model
+
 def create_model(input_shape=(64, 64, 3)):
     inputs = tf.keras.layers.Input(shape=input_shape)
-    x = create_custom_cnn(inputs)
+    # Simplified CNN
+    x = tf.keras.layers.Conv2D(32, (3, 3), activation='relu')(inputs)
+    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+    x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu')(x)
+    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
     x = tf.keras.layers.Flatten()(x)
-    x = tf.keras.layers.Dense(256, activation='relu', name='dense1')(x)
-    x = tf.keras.layers.Dropout(0.2)(x)
-    x = tf.keras.layers.Dense(64, name='dense2')(x)
-    x = tf.keras.layers.Reshape((8, 8))(x)
-    gru = tf.keras.layers.GRU(64, return_sequences=True, name='gru')(x)
-    attention = tf.keras.layers.Attention(name='attention')([gru, gru])
-    combined = tf.keras.layers.concatenate([gru, attention])
-    flattened = tf.keras.layers.Flatten()(combined)
-    output = tf.keras.layers.Dense(2, activation='softmax', name='output')(flattened)
+    x = tf.keras.layers.Dense(128, activation='relu')(x)
+    x = tf.keras.layers.Dropout(0.3)(x)
+    output = tf.keras.layers.Dense(2, activation='softmax')(x)
+    
     model = tf.keras.models.Model(inputs=inputs, outputs=output)
     return model
 
