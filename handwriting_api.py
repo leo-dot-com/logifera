@@ -42,17 +42,25 @@ WEIGHTS_CACHE_PATH = "/tmp/model.weights.h5"
 
 # Simplified model architecture to reduce memory usage
 def create_model(input_shape=(64, 64, 3)):
+    # Simplified architecture that matches your saved weights
     inputs = tf.keras.layers.Input(shape=input_shape)
     
-    # Simplified CNN
-    x = tf.keras.layers.Conv2D(32, (3, 3), activation='relu')(inputs)
+    # First Conv2D layer (matches 'conv2d' in weights)
+    x = tf.keras.layers.Conv2D(32, (3, 3), activation='relu', name='conv2d')(inputs)
     x = tf.keras.layers.MaxPooling2D((2, 2))(x)
-    x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu')(x)
+    
+    # Second Conv2D layer (matches 'conv2d_1' in weights)  
+    x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu', name='conv2d_1')(x)
     x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+    
     x = tf.keras.layers.Flatten()(x)
-    x = tf.keras.layers.Dense(128, activation='relu')(x)
+    
+    # First Dense layer (matches 'dense' in weights)
+    x = tf.keras.layers.Dense(128, activation='relu', name='dense')(x)
     x = tf.keras.layers.Dropout(0.3)(x)
-    output = tf.keras.layers.Dense(2, activation='softmax')(x)
+    
+    # Output layer (matches 'dense_1' in weights)
+    output = tf.keras.layers.Dense(2, activation='softmax', name='dense_1')(x)
     
     model = tf.keras.models.Model(inputs=inputs, outputs=output)
     return model
