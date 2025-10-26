@@ -24,7 +24,7 @@ app = Flask(__name__)
 CORS(app)
 
 # Your weights URL
-WEIGHTS_URL = "https://www.logifera.com/dev/diagnosis/model.weights.h5"
+WEIGHTS_URL = "https://www.logifera.com/model.weights.h5"
 WEIGHTS_CACHE_PATH = "/tmp/model.weights.h5"
 
 # Your model architecture (updated for TF 2.19.0 compatibility)
