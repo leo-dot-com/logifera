@@ -24,7 +24,7 @@ app = Flask(__name__)
 CORS(app)
 
 # Your weights URL
-WEIGHTS_URL = "https://www.logifera.com/model.weights.h5"
+WEIGHTS_URL = "https://www.logifera.com/small_model.weights.h5"
 WEIGHTS_CACHE_PATH = "/tmp/model.weights.h5"
 
 # EXACT architecture from CNN_model.py with the same ablation flags
