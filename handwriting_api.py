@@ -1,6 +1,7 @@
-# handwriting_api.py - UPDATED TO MATCH CNN_MODEL.PY ARCHITECTURE
+# handwriting_api.py - UPDATED FOR LIGHTWEIGHT MODEL
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
 import tensorflow as tf
 from flask import Flask, request, jsonify
@@ -8,7 +9,7 @@ from flask_cors import CORS
 import numpy as np
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, Dropout, GRU, Attention, concatenate, Reshape
+from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, Dropout
 from tensorflow.keras.models import Model
 import base64
 import cv2
@@ -23,33 +24,29 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
-# Your weights URL
+# Your weights URL - NOW POINTING TO SMALL MODEL
 WEIGHTS_URL = "https://www.logifera.com/small_model.weights.h5"
 WEIGHTS_CACHE_PATH = "/tmp/model.weights.h5"
 
-# EXACT architecture from CNN_model.py with the same ablation flags
+# LIGHTWEIGHT architecture that matches your small_model.weights.h5
 def create_model(input_shape=(64, 64, 3)):
     inputs = Input(shape=input_shape)
     
-    # Custom CNN layers from CNN_model.py
-    x = Conv2D(64, (3, 3), activation='relu', padding='same', name='custom_conv1')(inputs)
-    x = MaxPooling2D((2, 2), name='custom_pool1')(x)
-    x = Conv2D(128, (3, 3), activation='relu', padding='same', name='custom_conv2')(x)
+    # Lightweight CNN - EXACTLY as in CNN_model.py create_lightweight_model
+    x = Conv2D(32, (3, 3), activation='relu', padding='same', name='small_conv1')(inputs)
+    x = MaxPooling2D((2, 2), name='small_pool1')(x)
+    x = Conv2D(64, (3, 3), activation='relu', padding='same', name='small_conv2')(x)
+    x = MaxPooling2D((2, 2), name='small_pool2')(x)
+    x = Conv2D(64, (3, 3), activation='relu', padding='same', name='small_conv3')(x)
+    x = MaxPooling2D((2, 2), name='small_pool3')(x)
     
     x = Flatten()(x)
-    x = Dense(256, activation='relu', name='dense1')(x)
-    x = Dropout(0.2)(x)
-    x = Dense(64, name='dense2')(x)
-    x = Reshape((8, 8))(x)
-
-    # GRU and Attention layers (same as in CNN_model.py)
-    gru = GRU(64, return_sequences=True, name='gru')(x)
-    attention = Attention(name='attention')([gru, gru])
-    combined = concatenate([gru, attention])
-
-    flattened = Flatten()(combined)
-    output = Dense(2, activation='softmax', name='output')(flattened)
-
+    x = Dense(128, activation='relu', name='small_dense1')(x)
+    x = Dropout(0.3)(x)
+    x = Dense(64, activation='relu', name='small_dense2')(x)
+    x = Dropout(0.3)(x)
+    output = Dense(2, activation='softmax', name='small_output')(x)
+    
     model = Model(inputs=inputs, outputs=output)
     return model
 
