@@ -63,25 +63,47 @@ def download_weights():
     logger.info("Downloading model weights...")
     
     try:
-        response = requests.get(WEIGHTS_URL, stream=True, timeout=60)
+        # Add proper headers including Accept-Encoding
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (compatible; Railway/1.0)',
+            'Accept-Encoding': 'gzip, deflate',
+        }
+        response = requests.get(WEIGHTS_URL, stream=True, timeout=60, headers=headers)
         response.raise_for_status()
         
-        total_size = int(response.headers.get('content-length', 0))
-        logger.info(f"Total size: {total_size / (1024*1024):.2f} MB")
+        # Check actual content length
+        content_length = response.headers.get('content-length')
+        if content_length:
+            total_size = int(content_length)
+            logger.info(f"Total size: {total_size / (1024*1024):.2f} MB")
+        else:
+            logger.info("Content-Length header not found, downloading anyway...")
+            total_size = 0
         
+        # Download with progress
+        downloaded = 0
         with open(WEIGHTS_CACHE_PATH, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size > 0:
+                        progress = (downloaded / total_size) * 100
+                        if int(progress) % 20 == 0:  # Log every 20%
+                            logger.info(f"Downloaded: {progress:.1f}%")
         
         actual_size = os.path.getsize(WEIGHTS_CACHE_PATH)
         logger.info(f"Download completed: {actual_size / (1024*1024):.2f} MB")
+        
+        if actual_size == 0:
+            raise Exception("Downloaded file is 0 bytes!")
+            
         return WEIGHTS_CACHE_PATH
         
     except Exception as e:
         logger.error(f"Download failed: {str(e)}")
         if os.path.exists(WEIGHTS_CACHE_PATH):
-            return WEIGHTS_CACHE_PATH
+            os.remove(WEIGHTS_CACHE_PATH)  # Remove empty file
         raise
 
 def load_model_once():
