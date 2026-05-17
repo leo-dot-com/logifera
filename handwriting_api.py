@@ -1,4 +1,4 @@
-# handwriting_api.py - UPDATED FOR LIGHTWEIGHT MODEL
+# handwriting_api.py - UPDATED TO LOAD MODEL FROM LOCAL FILE
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
@@ -15,7 +15,6 @@ import base64
 import cv2
 import tempfile
 import logging
-import requests
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -24,9 +23,8 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
-# Your weights URL - NOW POINTING TO SMALL MODEL
-WEIGHTS_URL = "https://raw.githubusercontent.com/leo-dot-com/logifera/blob/main/small_model.weights.h5"
-WEIGHTS_CACHE_PATH = "/tmp/model.weights.h5"
+# The model file is now part of your GitHub repo
+MODEL_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "small_model.weights.h5")
 
 # LIGHTWEIGHT architecture that matches your small_model.weights.h5
 def create_model(input_shape=(64, 64, 3)):
@@ -53,61 +51,8 @@ def create_model(input_shape=(64, 64, 3)):
 # Global model variable
 model = None
 
-def download_weights():
-    """Download weights from your Hostinger domain"""
-    if os.path.exists(WEIGHTS_CACHE_PATH):
-        file_size = os.path.getsize(WEIGHTS_CACHE_PATH)
-        logger.info(f"Weights found in cache: {file_size / (1024*1024):.2f} MB")
-        return WEIGHTS_CACHE_PATH
-    
-    logger.info("Downloading model weights...")
-    
-    try:
-        # Add proper headers including Accept-Encoding
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (compatible; Railway/1.0)',
-            'Accept-Encoding': 'gzip, deflate',
-        }
-        response = requests.get(WEIGHTS_URL, stream=True, timeout=60, headers=headers)
-        response.raise_for_status()
-        
-        # Check actual content length
-        content_length = response.headers.get('content-length')
-        if content_length:
-            total_size = int(content_length)
-            logger.info(f"Total size: {total_size / (1024*1024):.2f} MB")
-        else:
-            logger.info("Content-Length header not found, downloading anyway...")
-            total_size = 0
-        
-        # Download with progress
-        downloaded = 0
-        with open(WEIGHTS_CACHE_PATH, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if total_size > 0:
-                        progress = (downloaded / total_size) * 100
-                        if int(progress) % 20 == 0:  # Log every 20%
-                            logger.info(f"Downloaded: {progress:.1f}%")
-        
-        actual_size = os.path.getsize(WEIGHTS_CACHE_PATH)
-        logger.info(f"Download completed: {actual_size / (1024*1024):.2f} MB")
-        
-        if actual_size == 0:
-            raise Exception("Downloaded file is 0 bytes!")
-            
-        return WEIGHTS_CACHE_PATH
-        
-    except Exception as e:
-        logger.error(f"Download failed: {str(e)}")
-        if os.path.exists(WEIGHTS_CACHE_PATH):
-            os.remove(WEIGHTS_CACHE_PATH)  # Remove empty file
-        raise
-
 def load_model_once():
-    """Load model only once when the API starts"""
+    """Load model from local file included in the deployment."""
     global model
     
     if model is not None:
@@ -117,9 +62,9 @@ def load_model_once():
     model = create_model(input_shape=(64, 64, 3))
     
     try:
-        weights_path = download_weights()
-        logger.info("Loading weights into model...")
-        model.load_weights(weights_path)
+        # Load weights directly from the local file
+        logger.info("Loading weights from local file...")
+        model.load_weights(MODEL_WEIGHTS_PATH)
         
         model.compile(optimizer=Adam(learning_rate=0.001),
                      loss='categorical_crossentropy',
