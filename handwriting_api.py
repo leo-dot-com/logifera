@@ -25,7 +25,7 @@ app = Flask(__name__)
 CORS(app)
 
 # Your weights URL - NOW POINTING TO SMALL MODEL
-WEIGHTS_URL = "https://www.logifera.com/small_model.weights.h5"
+WEIGHTS_URL = "https://github.com/leo-dot-com/logifera/edit/main/small_model.weights.h5"
 WEIGHTS_CACHE_PATH = "/tmp/model.weights.h5"
 
 # LIGHTWEIGHT architecture that matches your small_model.weights.h5
